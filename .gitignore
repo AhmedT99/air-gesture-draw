@@ -1,0 +1,34 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project: downloaded model (large; app downloads on first run if missing)
+models/*.task
+
+# Optional: saved drawings in project root (if DEFAULT_SAVE_DIR is ".")
+drawing_*.png
+
+# Env and secrets
+.env
+.env.local
+*.log
