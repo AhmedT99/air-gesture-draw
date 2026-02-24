@@ -1,0 +1,7 @@
+# Virtual Air-Drawing System - Python Dependencies
+# Install: pip install -r requirements.txt
+# Python 3.8+ recommended (macOS Apple Silicon and Intel)
+
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+numpy>=1.24.0
