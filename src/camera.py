@@ -1,6 +1,7 @@
 """
 Webcam capture module for macOS.
 Uses OpenCV's VideoCapture to access the built-in camera.
+Optimized for low latency: minimal buffer, requested FPS where supported.
 """
 
 import cv2
@@ -26,8 +27,11 @@ class Camera:
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.CAMERA_WIDTH)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.CAMERA_HEIGHT)
 
-        # Prefer faster read over exact exposure (can help FPS)
+        # Minimal buffer for lowest latency (perf: avoid stale frames)
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        # Request target FPS on macOS (AVFoundation may honor this)
+        self._cap.set(cv2.CAP_PROP_FPS, config.TARGET_FPS)
 
     @property
     def width(self):

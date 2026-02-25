@@ -44,10 +44,11 @@ def draw_instruction_box(frame_bgr, lines, position="bottom_left"):
         x1, y1 = margin, h - margin - box_h
     x2, y2 = x1 + box_w, y1 + box_h
 
-    # Semi-transparent background
-    overlay = frame_bgr.copy()
-    cv2.rectangle(overlay, (x1, y1), (x2, y2), (40, 40, 40), -1)
-    cv2.addWeighted(overlay, config.INSTRUCTION_BG_ALPHA, frame_bgr, 1 - config.INSTRUCTION_BG_ALPHA, 0, frame_bgr)
+    # Perf: copy and blend only the box ROI instead of full frame
+    roi = frame_bgr[y1:y2, x1:x2]
+    overlay_roi = roi.copy()
+    cv2.rectangle(overlay_roi, (0, 0), (box_w, box_h), (40, 40, 40), -1)
+    cv2.addWeighted(overlay_roi, config.INSTRUCTION_BG_ALPHA, roi, 1 - config.INSTRUCTION_BG_ALPHA, 0, roi)
     cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (200, 200, 200), 1)
 
     # Text (white)
@@ -93,10 +94,11 @@ def draw_toolbar(frame_bgr, current_color_bgr, brush_size):
     padding = config.TOOLBAR_PADDING
     colors = config.TOOLBAR_COLORS_BGR
 
-    # Toolbar background (semi-transparent)
-    overlay = frame_bgr.copy()
-    cv2.rectangle(overlay, (0, 0), (w, th), (50, 50, 50), -1)
-    cv2.addWeighted(overlay, config.TOOLBAR_BG_ALPHA, frame_bgr, 1 - config.TOOLBAR_BG_ALPHA, 0, frame_bgr)
+    # Perf: copy and blend only the toolbar strip instead of full frame
+    roi = frame_bgr[0:th, 0:w]
+    overlay_roi = roi.copy()
+    cv2.rectangle(overlay_roi, (0, 0), (w, th), (50, 50, 50), -1)
+    cv2.addWeighted(overlay_roi, config.TOOLBAR_BG_ALPHA, roi, 1 - config.TOOLBAR_BG_ALPHA, 0, roi)
     cv2.line(frame_bgr, (0, th), (w, th), (180, 180, 180), 1)
 
     # Color buttons in a row

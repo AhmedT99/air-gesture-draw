@@ -157,7 +157,7 @@ def main():
                     print("Save failed.")
 
             # -----------------------------------------------------------------
-            # FPS limiting (target >= 20 FPS)
+            # FPS limiting: only sleep when we're ahead of target (perf: don't add delay when already slow)
             # -----------------------------------------------------------------
             elapsed = time.perf_counter() - loop_start
             target_dt = 1.0 / config.TARGET_FPS

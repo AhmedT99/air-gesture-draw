@@ -89,6 +89,16 @@ class GestureDetector:
         self._frame_width = 640
         self._frame_height = 480
         self._timestamp_ms = 0
+        # Reused output dict to avoid per-frame allocation (perf)
+        self._out = {
+            "gesture": Gesture.NONE,
+            "cursor_xy": None,
+            "cursor_xy_normalized": None,
+            "landmarks": None,
+        }
+        # Detection size for downscaled input (perf: smaller frame = faster MediaPipe)
+        self._detect_w = config.DETECTION_WIDTH
+        self._detect_h = config.DETECTION_HEIGHT
 
     def set_frame_size(self, width, height):
         """Update frame size for converting normalized coords to pixels."""
@@ -150,45 +160,54 @@ class GestureDetector:
     def process(self, frame_bgr):
         """
         Run hand detection on the frame and return gesture + smoothed cursor.
-        :param frame_bgr: BGR image (numpy array)
+        Perf: runs detection on a downscaled copy (DETECTION_WIDTH x DETECTION_HEIGHT)
+        then maps normalized coords to display size; reduces MediaPipe work significantly.
+        :param frame_bgr: BGR image (numpy array, display resolution)
         :return: dict with gesture, cursor_xy, cursor_xy_normalized, landmarks
         """
-        self.set_frame_size(frame_bgr.shape[1], frame_bgr.shape[0])
-        h, w = frame_bgr.shape[0], frame_bgr.shape[1]
-        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        rgb_contiguous = np.ascontiguousarray(rgb)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_contiguous)
+        display_h, display_w = frame_bgr.shape[0], frame_bgr.shape[1]
+        self.set_frame_size(display_w, display_h)
 
-        # Use VIDEO mode API with monotonically increasing timestamp
-        self._timestamp_ms += 33  # ~30 FPS; value only needs to be increasing
+        # Perf: resize to detection resolution before inference (same aspect ratio helps)
+        if (display_w, display_h) != (self._detect_w, self._detect_h):
+            small = cv2.resize(
+                frame_bgr, (self._detect_w, self._detect_h), interpolation=cv2.INTER_LINEAR
+            )
+        else:
+            small = frame_bgr
+        rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+        if not rgb.flags["C_CONTIGUOUS"]:
+            rgb = np.ascontiguousarray(rgb)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+
+        # VIDEO mode with monotonic timestamp for temporal consistency
+        self._timestamp_ms += 33
         result = self._landmarker.detect_for_video(mp_image, self._timestamp_ms)
 
-        out = {
-            "gesture": Gesture.NONE,
-            "cursor_xy": None,
-            "cursor_xy_normalized": None,
-            "landmarks": None,
-        }
+        out = self._out
+        out["gesture"] = Gesture.NONE
+        out["cursor_xy"] = None
+        out["cursor_xy_normalized"] = None
+        out["landmarks"] = None
 
         if not result.hand_landmarks:
             self._cursor_buffer.clear()
             return out
 
-        # Use first hand only
         hand_landmarks = result.hand_landmarks[0]
-        gesture = self._detect_gesture(hand_landmarks)
-        out["gesture"] = gesture
+        out["gesture"] = self._detect_gesture(hand_landmarks)
 
-        # Cursor = index fingertip (smoothed)
+        # Cursor = index fingertip (smoothed). Perf: sum/len instead of np.mean(list comp)
         index_tip = self._get_landmark_xy(hand_landmarks, LandmarkIndex.INDEX_TIP)
         self._cursor_buffer.append(index_tip)
-        avg_x = np.mean([p[0] for p in self._cursor_buffer])
-        avg_y = np.mean([p[1] for p in self._cursor_buffer])
+        n = len(self._cursor_buffer)
+        avg_x = sum(p[0] for p in self._cursor_buffer) / n
+        avg_y = sum(p[1] for p in self._cursor_buffer) / n
         out["cursor_xy_normalized"] = (avg_x, avg_y)
-        out["cursor_xy"] = _normalized_to_pixel(avg_x, avg_y, w, h)
+        out["cursor_xy"] = _normalized_to_pixel(avg_x, avg_y, display_w, display_h)
 
         out["landmarks"] = [
-            _normalized_to_pixel(lm.x, lm.y, w, h)
+            _normalized_to_pixel(lm.x, lm.y, display_w, display_h)
             for lm in hand_landmarks
         ]
 

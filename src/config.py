@@ -13,13 +13,18 @@ TARGET_FPS = 30
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
 
+# Resolution used for hand detection only (smaller = faster MediaPipe, same UX).
+# Display stays at CAMERA_WIDTH x CAMERA_HEIGHT; landmarks are scaled back to display.
+DETECTION_WIDTH = 320
+DETECTION_HEIGHT = 240
+
 # Mirror the camera so drawing feels natural (like a mirror)
 MIRROR_CAMERA = True
 
 # -----------------------------------------------------------------------------
 # MediaPipe / hand detection
 # -----------------------------------------------------------------------------
-# Maximum number of hands to detect (1 is enough for drawing)
+# Maximum number of hands to detect (1 is enough for drawing; keeps pipeline fastest)
 MAX_NUM_HANDS = 1
 
 # Model complexity: 0 = lite, 1 = full. Lite is faster.

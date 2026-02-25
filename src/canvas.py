@@ -25,6 +25,10 @@ class Canvas:
         # Persistent drawing layer (BGR, same size as frame)
         self._layer = np.zeros((height, width, 3), dtype=np.uint8)
         self._layer[:] = config.CANVAS_BG_BGR
+        # Perf: cache bg as numpy array for fast mask in render_overlay
+        self._bg = np.array(config.CANVAS_BG_BGR, dtype=np.uint8)
+        # Perf: reusable float buffer for blend (avoids allocating every frame)
+        self._blend_buf = np.zeros((height, width, 3), dtype=np.float32)
 
         self._brush_size = config.DEFAULT_BRUSH_SIZE
         self._brush_color = list(config.DEFAULT_BRUSH_COLOR_BGR)
@@ -60,6 +64,7 @@ class Canvas:
     def _interpolate_points(self, start, end, steps):
         """
         Generate points between start and end for smooth line.
+        Perf: numpy linspace for interpolation, single allocation.
         :param start: (x, y)
         :param end: (x, y)
         :param steps: number of intermediate points (>= 1)
@@ -67,14 +72,11 @@ class Canvas:
         """
         if steps <= 0:
             return [start, end]
-        points = []
-        for i in range(steps + 1):
-            t = i / (steps + 1) if steps > 0 else 0
-            x = int(start[0] + t * (end[0] - start[0]))
-            y = int(start[1] + t * (end[1] - start[1]))
-            points.append((x, y))
-        points.append(end)
-        return points
+        # num = steps + 2 gives start + steps intermediates + end
+        t = np.linspace(0, 1, steps + 2, dtype=np.float32)
+        x = (start[0] + t * (end[0] - start[0])).astype(np.int32)
+        y = (start[1] + t * (end[1] - start[1])).astype(np.int32)
+        return list(zip(x, y))
 
     def draw_point(self, x, y, is_drawing):
         """
@@ -106,23 +108,26 @@ class Canvas:
     def render_overlay(self, frame_bgr, alpha=0.0):
         """
         Blend canvas layer onto frame. Where canvas is not background, blend it.
-        :param frame_bgr: camera frame (modified in place if alpha > 0)
-        :param alpha: 0 = only draw where we have strokes; 1 = full canvas opacity.
-          We use a fixed blend: canvas strokes drawn with partial transparency over frame.
+        Perf: no full-frame copy; use cached bg for mask; single in-place blend.
+        :param frame_bgr: camera frame (modified in place)
         """
-        # Only blend non-background pixels. Create mask where canvas differs from BG.
-        bg = np.array(config.CANVAS_BG_BGR, dtype=np.uint8)
-        diff = np.any(self._layer != bg, axis=2)
-        mask = diff.astype(np.uint8)
-        if mask.sum() == 0:
+        # Mask: pixels where canvas differs from background (cached self._bg)
+        diff = np.any(self._layer != self._bg, axis=2)
+        if not np.any(diff):
             return
-        mask_3 = cv2.merge([mask, mask, mask])
-        # Blend: frame = frame * (1 - mask) + layer * mask (with stroke alpha)
-        stroke_alpha = 0.85  # How visible the stroke is on top of camera
-        overlay = frame_bgr.copy()
-        overlay = (overlay.astype(np.float32) * (1 - stroke_alpha * mask_3) +
-                   self._layer.astype(np.float32) * (stroke_alpha * mask_3))
-        frame_bgr[:] = np.clip(overlay, 0, 255).astype(np.uint8)
+        mask = diff.astype(np.uint8)
+        mask_3 = np.stack([mask, mask, mask], axis=2)
+        stroke_alpha = 0.85
+        # Use pre-allocated buffer to avoid per-frame float allocation
+        buf = self._blend_buf
+        np.multiply(
+            frame_bgr.astype(np.float32),
+            1.0 - stroke_alpha * mask_3,
+            out=buf,
+        )
+        buf += self._layer.astype(np.float32) * (stroke_alpha * mask_3)
+        np.clip(buf, 0, 255, out=buf)
+        frame_bgr[:] = buf.astype(np.uint8)
 
     def get_drawing_only(self):
         """Return the canvas layer as BGR image (e.g. for saving)."""
